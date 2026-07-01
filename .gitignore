@@ -1,0 +1,6 @@
+# Extracted health data — PHI, never commit
+data/
+
+__pycache__/
+*.pyc
+.env
