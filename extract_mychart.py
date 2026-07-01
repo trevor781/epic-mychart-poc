@@ -27,6 +27,7 @@ import json
 import os
 import re
 import secrets
+import ssl
 import subprocess
 import sys
 import threading
@@ -39,8 +40,11 @@ from pathlib import Path
 
 ENDPOINT_DIRECTORY_URL = "https://open.epic.com/Endpoints/R4"
 REDIRECT_PORT = 8765
-REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
+# Epic requires an https redirect URI for production apps, so the local
+# callback server uses a self-signed cert (browser shows a one-time warning).
+REDIRECT_URI = f"https://localhost:{REDIRECT_PORT}/callback"
 DATA_DIR = Path(__file__).parent / "data"
+CERT_DIR = Path(__file__).parent / ".certs"
 
 # USCDI resource types to pull, with any search params Epic requires.
 # Observation and DocumentReference require a category filter on Epic.
@@ -125,6 +129,27 @@ def discover_smart_config(fhir_base):
     sys.exit(f"Could not discover OAuth endpoints for {fhir_base}")
 
 
+def ensure_localhost_cert():
+    """Create a self-signed cert for https://localhost (Epic requires https)."""
+    cert = CERT_DIR / "cert.pem"
+    key = CERT_DIR / "key.pem"
+    if cert.exists() and key.exists():
+        return cert, key
+    CERT_DIR.mkdir(exist_ok=True)
+    cmd = [
+        "openssl", "req", "-x509", "-newkey", "rsa:2048",
+        "-keyout", str(key), "-out", str(cert),
+        "-days", "365", "-nodes", "-subj", "/CN=localhost",
+        "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        # Older LibreSSL without -addext; cert works, browser warns regardless
+        subprocess.run(cmd[:-2], check=True, capture_output=True)
+    return cert, key
+
+
 class CallbackHandler(http.server.BaseHTTPRequestHandler):
     """Catches the OAuth redirect and stashes the authorization code."""
     result = {}
@@ -171,12 +196,19 @@ def authorize(client_id, fhir_base, authorize_url, token_url):
     }
     url = f"{authorize_url}?{urllib.parse.urlencode(auth_params)}"
 
+    cert, key = ensure_localhost_cert()
     server = http.server.HTTPServer(("localhost", REDIRECT_PORT), CallbackHandler)
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain(certfile=cert, keyfile=key)
+    server.socket = ssl_context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.handle_request, daemon=True)
     thread.start()
 
     print("\nOpening your browser for MyChart login...")
     print(f"If it doesn't open, visit:\n\n{url}\n")
+    print("NOTE: after login, the redirect to https://localhost will show a")
+    print("browser certificate warning (self-signed cert). Click Advanced ->")
+    print("Proceed to localhost. This happens once per cert.")
     webbrowser.open(url)
     thread.join(timeout=600)
     server.server_close()
