@@ -15,10 +15,10 @@ This is the only step that requires a human (account creation).
 2. **Build Apps** → **Create** a new app:
    - **Application Audience:** Patients
    - **Client type:** Public (no client secret; we use PKCE)
-   - **Endpoint (redirect) URI:** `https://localhost:8765/callback` — Epic
-     requires https for production apps. The script serves the callback
-     over https with a self-signed cert; your browser will show a
-     one-time certificate warning after login (Advanced → Proceed).
+   - **Endpoint (redirect) URI:** `https://personal-health-2h9.pages.dev/callback`
+     — Epic requires https. This hosted page (source in `site/`, deployed
+     on Cloudflare Pages) receives the OAuth redirect and forwards the
+     query string to the local script at `http://localhost:8765/callback`.
    - **APIs:** select only **USCDI R4 FHIR APIs**, read-only — at minimum:
      Patient.Read, AllergyIntolerance.Search, CarePlan.Search,
      CareTeam.Search, Condition.Search, Device.Search,

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorizing…</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px;
+           margin: 4rem auto; padding: 0 1.5rem; line-height: 1.6; color: #1a1a1a; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <p id="status">Handing off to the app on your computer…</p>
+  <p id="fallback" style="display:none">
+    If nothing happened, the local app isn't running. Start it, then
+    <a id="retry" href="#">click here to retry</a> — or paste this URL
+    into a terminal-accessible browser: <code id="target"></code>
+  </p>
+  <script>
+    var target = "http://localhost:8765/callback" + window.location.search;
+    document.getElementById("retry").href = target;
+    document.getElementById("target").textContent = target;
+    setTimeout(function () {
+      document.getElementById("fallback").style.display = "block";
+    }, 2500);
+    window.location.replace(target);
+  </script>
+</body>
+</html>

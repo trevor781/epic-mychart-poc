@@ -1,9 +1,6 @@
 # Extracted health data — PHI, never commit
 data/
 
-# Self-signed localhost TLS cert for the OAuth callback
-.certs/
-
 __pycache__/
 *.pyc
 .env
