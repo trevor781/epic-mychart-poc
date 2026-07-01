@@ -74,14 +74,18 @@ def http_get_json(url, headers=None, timeout=30):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def get_client_id():
-    client_id = os.environ.get("EPIC_CLIENT_ID")
+SANDBOX_FHIR_BASE = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/"
+
+
+def get_client_id(sandbox=False):
+    key = "EPIC_CLIENT_ID_NONPROD" if sandbox else "EPIC_CLIENT_ID"
+    client_id = os.environ.get(key)
     if client_id:
         return client_id.strip()
     try:
         out = subprocess.run(
             ["security", "find-generic-password", "-a", os.environ.get("USER", ""),
-             "-s", "EPIC_CLIENT_ID", "-w"],
+             "-s", key, "-w"],
             capture_output=True, text=True, check=True,
         )
         if out.stdout.strip():
@@ -89,9 +93,9 @@ def get_client_id():
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
     sys.exit(
-        "No client ID found. Save it to Keychain with:\n"
-        '  security add-generic-password -a "$USER" -s "EPIC_CLIENT_ID" -w "YOUR_CLIENT_ID" -U\n'
-        "or set the EPIC_CLIENT_ID environment variable."
+        f"No client ID found. Save it to Keychain with:\n"
+        f'  security add-generic-password -a "$USER" -s "{key}" -w "YOUR_CLIENT_ID" -U\n'
+        f"or set the {key} environment variable."
     )
 
 
@@ -351,7 +355,14 @@ def main():
                         help="FHIR R4 base URL of your health system")
     parser.add_argument("--check", action="store_true",
                         help="With --fhir-base: only verify OAuth endpoint discovery, don't authorize")
+    parser.add_argument("--sandbox", action="store_true",
+                        help="Run against Epic's sandbox with the non-production client ID "
+                             "(test patient login: fhircamila / epicepic1)")
     args = parser.parse_args()
+
+    if args.sandbox:
+        extract(get_client_id(sandbox=True), SANDBOX_FHIR_BASE)
+        return
 
     if args.search_org:
         matches = search_orgs(args.search_org)
