@@ -132,20 +132,25 @@ def discover_smart_config(fhir_base):
 
 
 class CallbackHandler(http.server.BaseHTTPRequestHandler):
-    """Catches the OAuth redirect and stashes the authorization code."""
+    """Catches the OAuth redirect and stashes the authorization code.
+
+    Ignores anything that isn't a real callback (favicon requests, bare
+    visits with no query string) so a stray hit can't consume the flow.
+    """
     result = {}
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/callback":
+        params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+        if parsed.path != "/callback" or not ("code" in params or "error" in params):
+            print(f"  (ignoring stray request: {parsed.path}?{parsed.query})")
             self.send_error(404)
             return
-        params = urllib.parse.parse_qs(parsed.query)
-        CallbackHandler.result = {k: v[0] for k, v in params.items()}
+        CallbackHandler.result = params
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        ok = "code" in CallbackHandler.result
+        ok = "code" in params
         self.wfile.write(
             b"<html><body style='font-family:sans-serif'><h2>"
             + (b"Authorized. You can close this tab and return to the terminal."
@@ -178,23 +183,30 @@ def authorize(client_id, fhir_base, authorize_url, token_url):
     url = f"{authorize_url}?{urllib.parse.urlencode(auth_params)}"
 
     server = http.server.HTTPServer(("localhost", REDIRECT_PORT), CallbackHandler)
-    thread = threading.Thread(target=server.handle_request, daemon=True)
+    server.timeout = 600
+
+    def serve_until_callback():
+        while not CallbackHandler.result:
+            server.handle_request()
+
+    thread = threading.Thread(target=serve_until_callback, daemon=True)
     thread.start()
 
     print("\nOpening your browser for MyChart login...")
     print(f"If it doesn't open, visit:\n\n{url}\n")
     webbrowser.open(url)
     thread.join(timeout=600)
-    server.server_close()
 
     result = CallbackHandler.result
     if "error" in result:
         sys.exit(f"Authorization failed: {result.get('error')}: {result.get('error_description', '')}")
-    if result.get("state") != state:
-        sys.exit("State mismatch in OAuth callback — aborting.")
     code = result.get("code")
     if not code:
         sys.exit("Timed out waiting for authorization (10 min).")
+    if result.get("state") != state:
+        sys.exit("State mismatch in OAuth callback (possible CSRF or a stale "
+                 "tab from an earlier attempt) — aborting. Re-run and use the "
+                 "freshly opened browser tab.")
 
     token_body = urllib.parse.urlencode({
         "grant_type": "authorization_code",
