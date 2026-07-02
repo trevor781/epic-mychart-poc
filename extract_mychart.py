@@ -62,6 +62,16 @@ RESOURCE_QUERIES = [
     ("Observation", {"category": "vital-signs"}),
     ("Observation", {"category": "social-history"}),
     ("Procedure", {}),
+    # Everything else the app may be entitled to — each skips gracefully
+    # (4xx) at orgs/apps where it isn't available.
+    ("ServiceRequest", {}),
+    ("Coverage", {}),
+    ("ExplanationOfBenefit", {}),
+    ("Specimen", {}),
+    ("QuestionnaireResponse", {}),
+    ("Appointment", {}),
+    ("FamilyMemberHistory", {}),
+    ("RelatedPerson", {}),
 ]
 
 
@@ -72,6 +82,15 @@ def http_get_json(url, headers=None, timeout=30):
     })
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def http_get_bytes(url, accept, access_token, timeout=30):
+    req = urllib.request.Request(url, headers={
+        "Accept": accept,
+        "Authorization": f"Bearer {access_token}",
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
 
 
 SANDBOX_FHIR_BASE = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/"
@@ -285,8 +304,48 @@ def extract(client_id, fhir_base):
     out_dir.mkdir(parents=True)
     for resource_type, resources in extracted.items():
         (out_dir / f"{resource_type}.json").write_text(json.dumps(resources, indent=2))
+
+    download_attachments(out_dir, extracted, access_token)
     write_summary(out_dir, extracted, fhir_base)
     print(f"\nDone. Raw FHIR data in {out_dir}/, human-readable summary in {out_dir}/summary.md")
+
+
+def download_attachments(out_dir, extracted, access_token):
+    """Pull note/report bodies (Binary attachments) while the token is fresh."""
+    att_dir = out_dir / "attachments"
+    jobs = []
+    for d in extracted.get("DocumentReference", []):
+        atts = [c.get("attachment", {}) for c in d.get("content", [])]
+        jobs.append(("DocumentReference", d.get("id"), atts))
+    for r in extracted.get("DiagnosticReport", []):
+        if r.get("presentedForm"):
+            jobs.append(("DiagnosticReport", r.get("id"), r["presentedForm"]))
+    if not jobs:
+        return
+    att_dir.mkdir(exist_ok=True)
+    ext_for = {"text/html": "html", "text/rtf": "rtf", "application/pdf": "pdf",
+               "text/plain": "txt", "application/xml": "xml"}
+    saved = failed = 0
+    for rtype, rid, atts in jobs:
+        # prefer html > plain > pdf > rtf when multiple formats exist
+        atts = sorted(atts, key=lambda a: ["text/html", "text/plain", "application/pdf",
+                                           "text/rtf"].index(a.get("contentType"))
+                      if a.get("contentType") in ("text/html", "text/plain",
+                                                  "application/pdf", "text/rtf") else 9)
+        for att in atts:
+            url, ctype = att.get("url"), att.get("contentType", "")
+            if not url:
+                continue
+            try:
+                blob = http_get_bytes(url, ctype or "*/*", access_token)
+                ext = ext_for.get(ctype, "bin")
+                (att_dir / f"{rtype}_{rid}.{ext}").write_bytes(blob)
+                saved += 1
+                break  # one format per document is enough
+            except (urllib.error.HTTPError, urllib.error.URLError):
+                failed += 1
+    print(f"  Attachments (note/report bodies): {saved} saved"
+          + (f", {failed} unavailable" if failed else ""))
 
 
 def _patient_name(patient):
