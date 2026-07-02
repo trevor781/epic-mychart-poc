@@ -305,12 +305,15 @@ def extract(client_id, fhir_base):
     for resource_type, resources in extracted.items():
         (out_dir / f"{resource_type}.json").write_text(json.dumps(resources, indent=2))
 
-    download_attachments(out_dir, extracted, access_token)
+    try:
+        download_attachments(out_dir, extracted, access_token, fhir_base)
+    except Exception as e:  # never lose the extraction over attachment issues
+        print(f"  Attachment download failed: {e}")
     write_summary(out_dir, extracted, fhir_base)
     print(f"\nDone. Raw FHIR data in {out_dir}/, human-readable summary in {out_dir}/summary.md")
 
 
-def download_attachments(out_dir, extracted, access_token):
+def download_attachments(out_dir, extracted, access_token, fhir_base):
     """Pull note/report bodies (Binary attachments) while the token is fresh."""
     att_dir = out_dir / "attachments"
     jobs = []
@@ -336,6 +339,7 @@ def download_attachments(out_dir, extracted, access_token):
             url, ctype = att.get("url"), att.get("contentType", "")
             if not url:
                 continue
+            url = urllib.parse.urljoin(fhir_base, url)  # Epic uses relative Binary/... refs
             try:
                 blob = http_get_bytes(url, ctype or "*/*", access_token)
                 ext = ext_for.get(ctype, "bin")
