@@ -563,7 +563,7 @@ def main():
     )
     out = data_dir / "report.html"
     out.write_text(page)
-    print(f"Wrote {out}")
+    print(f"Wrote {out.resolve().as_uri()}")
 
 
 if __name__ == "__main__":
