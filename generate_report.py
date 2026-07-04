@@ -60,6 +60,17 @@ def strip_html(s):
     return re.sub(r"<[^>]+>", " ", s or "").strip()
 
 
+def html_to_text(raw):
+    """Attachment HTML -> readable plain text with line breaks preserved."""
+    txt = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=re.S | re.I)
+    txt = re.sub(r"<br[^>]*>|</(p|div|tr|li|h[1-6])>", "\n", txt, flags=re.I)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = html.unescape(txt)
+    txt = re.sub(r"[ \t]+", " ", txt)
+    txt = re.sub(r" ?\n ?", "\n", txt)
+    return re.sub(r"\n{3,}", "\n\n", txt).strip()
+
+
 def obs_category(o):
     for cat in o.get("category", []):
         for c in cat.get("coding", []):
@@ -567,9 +578,15 @@ def immunizations_section(imms):
                    rowlist("g-imm", ["Vaccine", "Doses", "Dates"], rows))
 
 
-def reports_section(reports, obs_by_id):
+def reports_section(reports, obs_by_id, att_dir):
     rows = []
     for r in sorted(reports, key=lambda x: x.get("effectiveDateTime") or "", reverse=True):
+        narrative = ""
+        p = att_dir / f"DiagnosticReport_{r.get('id')}.html"
+        if p.exists():
+            text = html_to_text(p.read_text(errors="replace"))
+            if text:
+                narrative = f'<div class="notebody">{esc(text[:30000])}</div>'
         results = []
         for ref in r.get("result", []):
             rid = (ref.get("reference") or "").split("/")[-1]
@@ -595,6 +612,7 @@ def reports_section(reports, obs_by_id):
             )
         if conclusion:
             detail = dl([("Conclusion", esc(conclusion))]) + detail
+        detail += narrative
         n = len(r.get("result", []))
         cells = [
             f"<strong>{esc(cc_text(r.get('code')))}</strong>",
@@ -608,21 +626,31 @@ def reports_section(reports, obs_by_id):
                    note="Expand a report to see the individual results inside it.")
 
 
-def notes_section(docs):
+def notes_section(docs, att_dir):
     rows = []
     for d in sorted(docs, key=lambda x: x.get("date") or "", reverse=True):
         authors = ", ".join(a.get("display", "") for a in d.get("author", []) if a.get("display"))
         period = d.get("context", {}).get("period", {})
+        body_html = ""
+        for ext in ("html", "txt"):
+            p = att_dir / f"DocumentReference_{d.get('id')}.{ext}"
+            if p.exists():
+                raw = p.read_text(errors="replace")
+                text = html_to_text(raw) if ext == "html" else raw.strip()
+                if len(text) > 30000:
+                    text = text[:30000] + f"\n[… truncated, {len(text):,} chars total]"
+                if len(text) >= 5:
+                    body_html = f'<div class="notebody">{esc(text)}</div>'
+                break
         detail = dl([
             ("Category", ", ".join(cc_text(c) for c in d.get("category", []) if cc_text(c))),
             ("Care period", f"{fmt_date(period.get('start'))} – {fmt_date(period.get('end'))}"
              if period.get("start") else ""),
             ("Custodian", esc(d.get("custodian", {}).get("display", ""))),
-            ("Formats available", ", ".join(
-                c.get("attachment", {}).get("contentType", "") for c in d.get("content", []))),
-            ("Note body", "Stored behind the health system's authenticated endpoint — "
-                          "needs a fresh authorization to download."),
-        ])
+        ] + ([] if body_html else [(
+            "Note body", "Not downloaded in this extraction — re-run "
+                         "extract_mychart.py (requires a fresh MyChart login).")]))
+        detail += body_html
         cells = [
             f"<strong>{esc(cc_text(d.get('type')))}</strong>",
             esc(fmt_date(d.get("date"))),
@@ -804,6 +832,10 @@ details.row summary:hover { background: color-mix(in srgb, var(--series-1) 6%, t
 .kv dt { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .kv dd { margin: 0; font-size: 14px; overflow-wrap: break-word; }
 
+.notebody { white-space: pre-line; font-size: 13.5px; line-height: 1.5;
+            background: var(--page); border: 1px solid var(--grid); border-radius: 8px;
+            padding: 12px 16px; margin-top: 8px; max-height: 480px; overflow-y: auto; }
+
 /* nested tables */
 .tablewrap { overflow-x: auto; border: 1px solid var(--grid); border-radius: 8px; }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
@@ -897,8 +929,8 @@ def main():
         grouped_obs_section("vitals", "Vital signs", vitals),
         grouped_obs_section("social", "Social history", social),
         immunizations_section(imms),
-        reports_section(reports, obs_by_id),
-        notes_section(docs),
+        reports_section(reports, obs_by_id, data_dir / "attachments"),
+        notes_section(docs, data_dir / "attachments"),
         encounters_section(encs),
         careplan_section(plans, teams),
     ])
