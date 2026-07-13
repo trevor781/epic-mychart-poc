@@ -6,12 +6,19 @@ the combined data LLM-usable.
 
 ## Working with the health data
 
-**Start at `data/LLM_GUIDE.md`** — it documents everything under `data/`
-(what each file is, FHIR parsing patterns, the SQLite schema for wearable
-data, known data-quality issues, and how to refresh each artifact). Read it
-before touching the data.
+**`data/` is a symlink** to the consolidated health-data vault at
+`~/workspace/active_claude_projects/trevors_health` — the canonical home of
+all of Trevor's health data (this repo's extractions, Apple Health, plus
+provider downloads and an email archive from other tools). All the scripts
+here keep working unchanged; their outputs land in the vault through the
+symlink.
 
-`data/` is gitignored because it contains PHI (real medical records). Never
+**Start at `data/LLM_GUIDE.md`** (the vault's guide) — it documents every
+dataset (what each file is, FHIR parsing patterns, the SQLite schema for
+wearable data, known data-quality issues, and how to refresh each artifact).
+Read it before touching the data.
+
+`data` is gitignored because it contains PHI (real medical records). Never
 commit anything from it, never upload its contents to external services, and
 never quote identifying details in committed files.
 

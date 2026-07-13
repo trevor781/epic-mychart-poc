@@ -880,7 +880,10 @@ def main():
     if len(sys.argv) > 1:
         data_dir = Path(sys.argv[1])
     else:
-        runs = sorted(d for d in DATA_DIR.iterdir() if d.is_dir())
+        # Extraction dirs are timestamp-named (YYYYMMDD_HHMMSS); data/ also
+        # holds non-extraction dirs (apple_health, providers, email_archive).
+        runs = sorted(d for d in DATA_DIR.iterdir()
+                      if d.is_dir() and d.name[:8].isdigit())
         if not runs:
             sys.exit("No extractions found under data/. Run extract_mychart.py first.")
         data_dir = runs[-1]

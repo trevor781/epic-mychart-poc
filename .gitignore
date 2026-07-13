@@ -1,5 +1,7 @@
 # Extracted health data — PHI, never commit
-data/
+# (no trailing slash: data is now a symlink to the trevors_health vault,
+# and `data/` would not match a symlink)
+data
 
 __pycache__/
 *.pyc
